@@ -1,22 +1,21 @@
 #!/bin/bash
 
 # ---
-# execute-prp.sh (v11 - Standardized on gemini-cli)
+# execute-prp.sh (v10 - With Robust `while read` Loop)
 #
 # Description:
-#   Acts as an AI agent that uses `gemini-cli` to get a plan, then
-#   uses `awk` to parse and execute the plan step-by-step.
+#   The definitive agent script. It uses `awk` to parse the AI plan
+#   and a robust `while read` loop to process and execute each action.
 # ---
 
 # 1. Validate Input & Environment
 # --------------------------------
-if ! command -v gemini &> /dev/null; then
-    echo "Error: gemini-cli is not installed or not in your PATH."
-    echo "Please install it via npm: npm install -g @google/generative-ai-cli"
-    exit 1
+if [ -z "$GEMINI_API_KEY" ]; then
+  echo "Error: GEMINI_API_KEY environment variable is not set."
+  exit 1
 fi
-if ! command -v awk &> /dev/null; then
-    echo "Error: awk is required. Please ensure it is installed."
+if ! command -v jq &> /dev/null || ! command -v awk &> /dev/null; then
+    echo "Error: jq and awk are required. Please install them."
     exit 1
 fi
 if [ -z "$1" ]; then
@@ -57,22 +56,23 @@ END_PROMPT
 # 3. Send PRP to Gemini and Get the Plan
 # --------------------------------------
 PRP_CONTENT=$(cat "$PRP_FILE_PATH")
-FULL_PROMPT=$(cat <<EOF
-$EXECUTE_PRP_PROMPT
+FULL_PROMPT="${EXECUTE_PRP_PROMPT}\n\nHere is the PRP to execute:\n---\n${PRP_CONTENT}"
 
-Here is the PRP to execute:
----
-$PRP_CONTENT
-EOF
-)
+echo "🤖 Sending PRP to Gemini to generate an implementation plan..."
 
+JSON_PAYLOAD=$(jq -n --arg prompt "$FULL_PROMPT" \
+                  '{ "contents": [ { "parts": [ { "text": $prompt } ] } ] }')
 
-echo "🤖 Piping prompt to gemini-cli to generate an implementation plan..."
+API_RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}" \
+-H "Content-Type: application/json" \
+-d "$JSON_PAYLOAD")
 
-AI_PLAN=$(echo "$FULL_PROMPT" | gemini generate-text --model gemini-2.0-flash)
+AI_PLAN=$(echo "$API_RESPONSE" | jq -r '.candidates[0].content.parts[0].text')
 
-if [ -z "$AI_PLAN" ]; then
-    echo "Error: Received an empty response from the gemini-cli."
+if [ -z "$AI_PLAN" ] || [ "$AI_PLAN" == "null" ]; then
+    echo "Error: Could not get a valid plan from the API."
+    echo "Full API Response:"
+    echo "$API_RESPONSE"
     exit 1
 fi
 
@@ -86,12 +86,18 @@ echo "--------------------------------------------------"
 PARSED_PLAN=$(echo "$AI_PLAN" | awk '
 function print_block() {
     if (type != "") {
+        # Print the header line, then the content, then the separator
         print type " " path;
         print content;
         print "<--BLOCK_SEPARATOR-->";
     }
-    in_block = 0; type = ""; path = ""; content = "";
+    # Reset state
+    in_block = 0;
+    type = "";
+    path = "";
+    content = "";
 }
+
 /^(CREATE|MODIFY) / { print_block(); type = $1; path = $2; getline; in_block = 1; next; }
 /^```bash/ { print_block(); type = "COMMAND"; path = ""; in_block = 1; next; }
 /^```/ { print_block(); next; }
@@ -100,23 +106,25 @@ function print_block() {
     else content = content "\n" $0;
   }
 }
-END { print_block(); }
+END { print_block(); } # Print any final block
 ')
 
-# 5. Execute the Parsed Plan
-# --------------------------
+# 5. Execute the Parsed Plan (Robust `while read` loop)
+# -----------------------------------------------------
 echo "🤖 Starting execution of the parsed plan..."
 
-IFS=$'\n'
-BLOCKS=($(echo "$PARSED_PLAN" | awk 'BEGIN{RS="<--BLOCK_SEPARATOR-->\n"} {print}'))
+# Use a while loop to process the awk output block by block.
+# This is the most robust way to handle multi-line input in bash.
+while IFS= read -r header; do
+    content=""
+    while IFS= read -r line && [[ "$line" != "<--BLOCK_SEPARATOR-->" ]]; do
+        if [ -z "$content" ]; then
+            content="$line"
+        else
+            content="$content\n$line"
+        fi
+    done
 
-for block in "${BLOCKS[@]}"; do
-    if [ -z "$block" ]; then
-        continue
-    fi
-
-    header=$(echo "$block" | head -n 1)
-    content=$(echo "$block" | tail -n +2)
     action=$(echo "$header" | awk '{print $1}')
     filepath=$(echo "$header" | awk '{print $2}')
 
@@ -148,6 +156,6 @@ for block in "${BLOCKS[@]}"; do
             echo "❌ Action skipped by user."
         fi
     fi
-done
+done <<< "$PARSED_PLAN"
 
 echo -e "\n🎉 Plan execution complete."
