@@ -1,3 +1,10 @@
+You are an expert-level AI software engineer. Your task is to generate a complete Product Requirements Prompt (PRP) based on the provided user request.
+
+**Your output MUST strictly follow the structure and use the exact headings from the template provided below.** Do not invent your own headings or sections. You must fill out every section of the template: `1. Overview`, `2. Success Criteria`, `3. Context & Resources`, `4. Implementation Blueprint`, and `5. Validation Plan`.
+
+Your final output must be ONLY the completed PRP markdown content. Do not include any other text.
+
+--- TEMPLATE TO FOLLOW ---
 # Product Requirements Prompt (PRP)
 ## 1. Overview
 - **Feature Name:** _A short, descriptive name for the feature._

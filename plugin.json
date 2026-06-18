@@ -1,0 +1,30 @@
+{
+  "name": "Context Engineering Legacy Suite",
+  "description": "Legacy product requirements prompts tools ported to agy.",
+  "settings": {
+    "enable_ponytail_mode": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, appends a minimalist coding guidelines ruleset to the global agent context."
+    }
+  },
+  "context": [
+    {
+      "type": "markdown",
+      "file": "ponytail.md",
+      "when": "enable_ponytail_mode"
+    }
+  ],
+  "skills": [
+    {
+      "command": "/generate-prp",
+      "description": "Generates a complete Product Requirements Prompt (PRP) based on the provided user request.",
+      "file": "skills/generate-prp.md"
+    },
+    {
+      "command": "/execute-prp",
+      "description": "Executes a provided Product Requirements Prompt (PRP).",
+      "file": "skills/execute-prp.md"
+    }
+  ]
+}
